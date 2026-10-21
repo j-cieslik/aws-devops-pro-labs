@@ -1,0 +1,143 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Projekt 1 / lekcja 4 - CodePipeline: git push -> CodeBuild (testy + paczka) -> CodeDeploy (serwery).
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: p1
+  GitHubRepo:
+    Type: String
+    Default: j-cieslik/aws-devops-pro-labs
+  Branch:
+    Type: String
+    Default: main
+
+Resources:
+  # Bucket, w ktorym pipeline przekazuje paczki miedzy etapami (artifact store).
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectName}-pipeline-artifacts-${AWS::AccountId}"
+
+  # Projekt CodeBuild dla pipeline'u: kod dostaje OD PIPELINE'U (a nie sam z GitHuba)
+  # i wynik tez oddaje pipeline'owi.
+  PipelineBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "${ProjectName}-pipeline-build"
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: project1-ec2-pipeline/buildspec.yml
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
+      TimeoutInMinutes: 10
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: codebuild-in-pipeline
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: "*"
+              - Effect: Allow
+                Action: [s3:GetObject, s3:GetObjectVersion, s3:PutObject]
+                Resource: !Sub "${ArtifactBucket.Arn}/*"
+
+  # Rola "kierownika": pipeline uzywa jej, zeby wolac GitHuba, CodeBuild i CodeDeploy.
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codepipeline.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: pipeline
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Artifacts
+                Effect: Allow
+                Action: [s3:GetObject, s3:GetObjectVersion, s3:PutObject, s3:GetBucketVersioning, s3:GetBucketLocation, s3:ListBucket]
+                Resource: [!GetAtt ArtifactBucket.Arn, !Sub "${ArtifactBucket.Arn}/*"]
+              - Sid: GitHub
+                Effect: Allow
+                Action: [codestar-connections:UseConnection, codeconnections:UseConnection]
+                Resource: { "Fn::ImportValue": !Sub "${ProjectName}-github-connection" }
+              - Sid: Build
+                Effect: Allow
+                Action: [codebuild:StartBuild, codebuild:BatchGetBuilds]
+                Resource: !GetAtt PipelineBuildProject.Arn
+              - Sid: Deploy
+                Effect: Allow
+                Action:
+                  - codedeploy:CreateDeployment
+                  - codedeploy:GetDeployment
+                  - codedeploy:GetDeploymentConfig
+                  - codedeploy:GetApplication
+                  - codedeploy:GetApplicationRevision
+                  - codedeploy:RegisterApplicationRevision
+                Resource: "*"
+
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub "${ProjectName}-pipeline"
+      PipelineType: V2
+      RoleArn: !GetAtt PipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+        # Etap 1: pobierz kod z GitHuba (uruchamia sie sam po git push na main).
+        - Name: Source
+          Actions:
+            - Name: GitHub
+              ActionTypeId: { Category: Source, Owner: AWS, Provider: CodeStarSourceConnection, Version: "1" }
+              Configuration:
+                ConnectionArn: { "Fn::ImportValue": !Sub "${ProjectName}-github-connection" }
+                FullRepositoryId: !Ref GitHubRepo
+                BranchName: !Ref Branch
+              OutputArtifacts: [{ Name: SourceOutput }]
+
+        # Etap 2: zbuduj i przetestuj (buildspec.yml); wynik = paczka dla CodeDeploy.
+        - Name: Build
+          Actions:
+            - Name: TestAndPackage
+              ActionTypeId: { Category: Build, Owner: AWS, Provider: CodeBuild, Version: "1" }
+              Configuration:
+                ProjectName: !Ref PipelineBuildProject
+              InputArtifacts: [{ Name: SourceOutput }]
+              OutputArtifacts: [{ Name: BuildOutput }]
+
+        # Etap 3: zainstaluj paczke na serwerach (appspec.yml).
+        - Name: Deploy
+          Actions:
+            - Name: CodeDeploy
+              ActionTypeId: { Category: Deploy, Owner: AWS, Provider: CodeDeploy, Version: "1" }
+              Configuration:
+                ApplicationName: !Sub "${ProjectName}-app"
+                DeploymentGroupName: !Sub "${ProjectName}-dg"
+              InputArtifacts: [{ Name: BuildOutput }]
+
+Outputs:
+  PipelineConsoleUrl:
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/codesuite/codepipeline/pipelines/${Pipeline}/view?region=${AWS::Region}"

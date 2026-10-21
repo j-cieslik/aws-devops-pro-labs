@@ -1,0 +1,21 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Projekt 1 / lekcja 3 - polaczenie AWS z GitHubem (CodeConnections).
+  Po utworzeniu ma status PENDING; trzeba je raz zatwierdzic w konsoli.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: p1
+
+Resources:
+  GitHubConnection:
+    Type: AWS::CodeStarConnections::Connection
+    Properties:
+      ConnectionName: !Sub "${ProjectName}-github"
+      ProviderType: GitHub
+
+Outputs:
+  ConnectionArn:
+    Value: !Ref GitHubConnection
+    Export: { Name: !Sub "${ProjectName}-github-connection" }

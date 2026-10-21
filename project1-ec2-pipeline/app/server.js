@@ -1,15 +1,9 @@
-// Najprostsza aplikacja webowa: strona główna pokazuje wersję i nazwę serwera,
-// a /health służy load balancerowi do sprawdzania, czy aplikacja żyje.
+// Serwer HTTP na porcie 3000; całą logikę odpowiedzi trzyma app.js.
 const http = require("http");
-const os = require("os");
-
-const VERSION = "1";
+const { handle } = require("./app");
 
 http.createServer((req, res) => {
-  if (req.url === "/health") {
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    return res.end("OK");
-  }
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-  res.end(`<h1>Wersja ${VERSION}</h1><p>Serwer: ${os.hostname()}</p>`);
+  const r = handle(req.url);
+  res.writeHead(r.status, { "Content-Type": r.type });
+  res.end(r.body);
 }).listen(3000);

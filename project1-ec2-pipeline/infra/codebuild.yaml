@@ -1,0 +1,78 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Projekt 1 / lekcja 3 - CodeBuild: pobiera kod z GitHuba, uruchamia testy
+  i odklada gotowa paczke ZIP do bucketu, z ktorego korzysta CodeDeploy.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: p1
+  GitHubRepoUrl:
+    Type: String
+    Default: https://github.com/j-cieslik/aws-devops-pro-labs.git
+
+Resources:
+  # Rola, z ktora dziala "wynajety komputer" CodeBuild.
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: codebuild-basic
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: "*"
+              - Sid: ArtifactsBucket
+                Effect: Allow
+                Action: [s3:PutObject, s3:GetObject, s3:GetObjectVersion, s3:GetBucketLocation]
+                Resource:
+                  - !Sub
+                    - "arn:aws:s3:::${Bucket}/*"
+                    - Bucket: { "Fn::ImportValue": !Sub "${ProjectName}-revisions-bucket" }
+              - Sid: UseGitHubConnection
+                Effect: Allow
+                Action:
+                  - codestar-connections:UseConnection
+                  - codestar-connections:GetConnectionToken
+                  - codeconnections:UseConnection
+                  - codeconnections:GetConnectionToken
+                Resource:
+                  - { "Fn::ImportValue": !Sub "${ProjectName}-github-connection" }
+
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "${ProjectName}-build"
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      # Skad wziac kod: nasze repo na GitHubie, przez zatwierdzone polaczenie.
+      Source:
+        Type: GITHUB
+        Location: !Ref GitHubRepoUrl
+        BuildSpec: project1-ec2-pipeline/buildspec.yml
+        Auth:
+          Type: CODECONNECTIONS
+          Resource: { "Fn::ImportValue": !Sub "${ProjectName}-github-connection" }
+      SourceVersion: main
+      # Na jakim "komputerze" budowac: maly Linux z gotowymi narzedziami (m.in. Node.js).
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
+      # Gdzie odlozyc wynik: ZIP w bucketcie z paczkami.
+      Artifacts:
+        Type: S3
+        Location: { "Fn::ImportValue": !Sub "${ProjectName}-revisions-bucket" }
+        Name: app-build.zip
+        Packaging: ZIP
+      TimeoutInMinutes: 10
+      LogsConfig:
+        CloudWatchLogs: { Status: ENABLED }

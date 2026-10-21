@@ -1,0 +1,21 @@
+# Instrukcja dla CodeBuild: co zrobić z kodem, krok po kroku.
+version: 0.2
+
+phases:
+  install:          # 1. przygotuj narzędzia (jak instalacja Visual Studio na nowym komputerze)
+    runtime-versions:
+      nodejs: 20
+  build:            # 2. uruchom testy; jeśli któryś nie przejdzie, build się zatrzyma
+    commands:
+      - cd project1-ec2-pipeline/app
+      - node --test
+      - echo "Testy przeszly"
+
+# 3. Co zabrać jako wynik (paczka dla CodeDeploy). Testów nie wysyłamy na serwer.
+artifacts:
+  base-directory: project1-ec2-pipeline/app
+  files:
+    - appspec.yml
+    - app.js
+    - server.js
+    - scripts/**/*

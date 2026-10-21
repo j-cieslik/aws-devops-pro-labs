@@ -1,0 +1,227 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Projekt 1 / etap 1 - infrastruktura pod CodeDeploy:
+  VPC (2 publiczne subnety), ALB, Auto Scaling group 2x EC2 z agentem CodeDeploy i Node.js.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: p1
+    Description: Prefiks nazw zasobow i tag "Project" (CodeDeploy moze po nim szukac instancji).
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+
+  # Typ parametru SSM: CloudFormation sam pobiera aktualne ID AMI przy kazdym create/update.
+  # To ten sam mechanizm co w pytaniu 12 z testu diagnostycznego.
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+  # Na start EC2: aplikacji jeszcze nie ma, wiec health check ALB by nie przechodzil
+  # i ASG wymienialby instancje w kolko. Po pierwszym wdrozeniu przelaczymy na ELB.
+  AsgHealthCheckType:
+    Type: String
+    Default: EC2
+    AllowedValues: [EC2, ELB]
+
+Resources:
+  # ---------- Siec: VPC z dwoma publicznymi subnetami (bez NAT Gateway, zeby bylo tanio) ----------
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.10.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-vpc" }]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.10.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-public-a" }]
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.10.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-public-b" }]
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetARouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  SubnetBRouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  # ---------- Security groups: internet -> ALB:80, ALB -> EC2:3000 ----------
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HTTP z internetu do ALB
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0 }
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Ruch do aplikacji tylko z ALB (bez SSH - dostep przez SSM Session Manager)
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 3000, ToPort: 3000, SourceSecurityGroupId: !Ref AlbSecurityGroup }
+
+  # ---------- ALB + target group ----------
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${ProjectName}-alb"
+      Scheme: internet-facing
+      Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+      SecurityGroups: [!Ref AlbSecurityGroup]
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${ProjectName}-tg"
+      VpcId: !Ref Vpc
+      Protocol: HTTP
+      Port: 3000
+      TargetType: instance
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      TargetGroupAttributes:
+        # Domyslnie 300 s. Skracamy, zeby wdrozenia (BlockTraffic) nie czekaly 5 minut.
+        - { Key: deregistration_delay.timeout_seconds, Value: "30" }
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - { Type: forward, TargetGroupArn: !Ref TargetGroup }
+
+  # ---------- Rola instancji: SSM (zamiast SSH) + odczyt paczek z S3 dla agenta CodeDeploy ----------
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: codedeploy-revisions-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Agent pobiera revision z bucketu artefaktow pipeline (powstanie w etapie 3).
+              # Zawezimy to do konkretnego bucketu, gdy bedzie istnial.
+              - Effect: Allow
+                Action: [s3:GetObject, s3:GetObjectVersion, s3:ListBucket]
+                Resource: "*"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  # ---------- Launch template: user data instaluje Node.js i agenta CodeDeploy ----------
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref LatestAmiId
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile: { Arn: !GetAtt InstanceProfile.Arn }
+        SecurityGroupIds: [!Ref InstanceSecurityGroup]
+        MetadataOptions:
+          HttpTokens: required
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - { Key: Name, Value: !Sub "${ProjectName}-app" }
+              - { Key: Project, Value: !Ref ProjectName }
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -euxo pipefail
+            dnf install -y ruby wget nodejs
+            cd /tmp
+            wget https://aws-codedeploy-${AWS::Region}.s3.${AWS::Region}.amazonaws.com/latest/install
+            chmod +x ./install
+            ./install auto
+            systemctl enable --now codedeploy-agent
+
+  # ---------- Auto Scaling group ----------
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Sub "${ProjectName}-asg"
+      MinSize: "2"
+      MaxSize: "4"
+      DesiredCapacity: "2"
+      VPCZoneIdentifier: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      TargetGroupARNs: [!Ref TargetGroup]
+      HealthCheckType: !Ref AsgHealthCheckType
+      HealthCheckGracePeriod: 300
+
+Outputs:
+  AppUrl:
+    Value: !Sub "http://${LoadBalancer.DNSName}"
+  AutoScalingGroupName:
+    Value: !Ref AutoScalingGroup
+    Export: { Name: !Sub "${ProjectName}-asg-name" }
+  TargetGroupName:
+    Value: !GetAtt TargetGroup.TargetGroupName
+    Export: { Name: !Sub "${ProjectName}-tg-name" }
+  LoadBalancerFullName:
+    Value: !GetAtt LoadBalancer.LoadBalancerFullName
+    Export: { Name: !Sub "${ProjectName}-alb-fullname" }
+  TargetGroupFullName:
+    Value: !GetAtt TargetGroup.TargetGroupFullName
+    Export: { Name: !Sub "${ProjectName}-tg-fullname" }

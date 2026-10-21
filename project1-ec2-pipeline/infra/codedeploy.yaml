@@ -1,0 +1,62 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Projekt 1 / lekcja 2 - CodeDeploy: bucket na paczki, rola dla CodeDeploy,
+  aplikacja i deployment group wskazujaca serwery z Auto Scaling group.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: p1
+
+Resources:
+  # Tu wrzucamy paczki ZIP z aplikacja (na razie recznie, pozniej zrobi to pipeline).
+  RevisionsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectName}-revisions-${AWS::AccountId}"
+      VersioningConfiguration: { Status: Enabled }
+
+  # Rola, ktora CodeDeploy przyjmuje, zeby moc ogladac serwery, ASG i load balancer.
+  CodeDeployServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codedeploy.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole
+
+  # "Aplikacja" w CodeDeploy to tylko nazwa-pojemnik na deployment groups i historie wdrozen.
+  Application:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: !Sub "${ProjectName}-app"
+      ComputePlatform: Server
+
+  # Deployment group = NA KTORE serwery i JAK wdrazac.
+  DeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref Application
+      DeploymentGroupName: !Sub "${ProjectName}-dg"
+      ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
+      # NA KTORE: wszystkie serwery z naszej Auto Scaling group.
+      AutoScalingGroups:
+        - Fn::ImportValue: !Sub "${ProjectName}-asg-name"
+      # JAK: po jednym serwerze naraz, z odpinaniem go od load balancera na czas podmiany.
+      DeploymentConfigName: CodeDeployDefault.OneAtATime
+      DeploymentStyle:
+        DeploymentType: IN_PLACE
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+      LoadBalancerInfo:
+        TargetGroupInfoList:
+          - Name:
+              Fn::ImportValue: !Sub "${ProjectName}-tg-name"
+
+Outputs:
+  RevisionsBucketName:
+    Value: !Ref RevisionsBucket
+    Export: { Name: !Sub "${ProjectName}-revisions-bucket" }

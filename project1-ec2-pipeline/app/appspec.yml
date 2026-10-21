@@ -1,0 +1,23 @@
+# Instrukcja dla CodeDeploy: co skopiować i jakie skrypty uruchomić po kolei.
+version: 0.0
+os: linux
+
+# Krok "podmień pliki": cała zawartość paczki trafia do /opt/app na serwerze.
+files:
+  - source: /
+    destination: /opt/app
+
+# Skrypty uruchamiane w ustalonej kolejności (od góry do dołu).
+hooks:
+  ApplicationStop:        # 1. zatrzymaj starą wersję
+    - location: scripts/stop.sh
+      timeout: 60
+      runas: root
+  ApplicationStart:       # 2. uruchom nową wersję (pliki są już podmienione)
+    - location: scripts/start.sh
+      timeout: 60
+      runas: root
+  ValidateService:        # 3. sprawdź, czy działa
+    - location: scripts/validate.sh
+      timeout: 60
+      runas: root

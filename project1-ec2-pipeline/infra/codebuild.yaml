@@ -42,8 +42,10 @@ Resources:
                 Effect: Allow
                 Action:
                   - codestar-connections:UseConnection
+                  - codestar-connections:GetConnection
                   - codestar-connections:GetConnectionToken
                   - codeconnections:UseConnection
+                  - codeconnections:GetConnection
                   - codeconnections:GetConnectionToken
                 Resource:
                   - { "Fn::ImportValue": !Sub "${ProjectName}-github-connection" }

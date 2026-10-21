@@ -10,7 +10,7 @@ function handle(url) {
   return {
     status: 200,
     type: "text/html; charset=utf-8",
-    body: `<h1>Version ${VERSION}</h1><p>Serwer: ${os.hostname()}</p>`,
+    body: `<h1>Wersja ${VERSION}</h1><p>Serwer: ${os.hostname()}</p>`,
   };
 }
 

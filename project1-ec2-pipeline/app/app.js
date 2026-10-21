@@ -1,7 +1,7 @@
 // Logika aplikacji wydzielona z serwera, żeby dało się ją przetestować bez uruchamiania HTTP.
 const os = require("os");
 
-const VERSION = "2";
+const VERSION = "3";
 
 function handle(url) {
   if (url === "/health") {
@@ -10,7 +10,7 @@ function handle(url) {
   return {
     status: 200,
     type: "text/html; charset=utf-8",
-    body: `<h1>Wersja ${VERSION}</h1><p>Serwer: ${os.hostname()}</p>`,
+    body: `<h1>Version ${VERSION}</h1><p>Serwer: ${os.hostname()}</p>`,
   };
 }
 

@@ -12,8 +12,22 @@ Parameters:
   Branch:
     Type: String
     Default: main
+  ApprovalEmail:
+    Type: String
+    Default: jakubcieslik91@gmail.com
+    Description: Adres, na ktory przychodzi prosba o zatwierdzenie wdrozenia.
 
 Resources:
+  # Lekcja 6: temat SNS = "skrzynka nadawcza". Pipeline wrzuca do niej wiadomosc,
+  # a SNS rozsyla ja do subskrybentow (tu: e-mail).
+  ApprovalTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${ProjectName}-approval"
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref ApprovalEmail
+
   # Bucket, w ktorym pipeline przekazuje paczki miedzy etapami (artifact store).
   ArtifactBucket:
     Type: AWS::S3::Bucket
@@ -82,6 +96,10 @@ Resources:
                 Effect: Allow
                 Action: [codestar-connections:UseConnection, codeconnections:UseConnection]
                 Resource: { "Fn::ImportValue": !Sub "${ProjectName}-github-connection" }
+              - Sid: ApprovalNotification
+                Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref ApprovalTopic
               - Sid: Build
                 Effect: Allow
                 Action: [codebuild:StartBuild, codebuild:BatchGetBuilds]
@@ -127,6 +145,16 @@ Resources:
                 ProjectName: !Ref PipelineBuildProject
               InputArtifacts: [{ Name: SourceOutput }]
               OutputArtifacts: [{ Name: BuildOutput }]
+
+        # Lekcja 6: pipeline zatrzymuje sie i czeka, az czlowiek kliknie Approve lub Reject.
+        - Name: Approve
+          Actions:
+            - Name: ManualApproval
+              ActionTypeId: { Category: Approval, Owner: AWS, Provider: Manual, Version: "1" }
+              Configuration:
+                NotificationArn: !Ref ApprovalTopic
+                CustomData: "Testy przeszly. Czy wdrozyc nowa wersje na serwery?"
+              TimeoutInMinutes: 60
 
         # Etap 3: zainstaluj paczke na serwerach (appspec.yml).
         - Name: Deploy

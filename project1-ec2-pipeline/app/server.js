@@ -10,7 +10,16 @@ http.createServer((req, res) => {
       // NOWA FUNKCJA: baner z pliku konfiguracyjnego.
       // BŁĄD: na serwerze nikt nie utworzył pliku config.json!
       const config = JSON.parse(fs.readFileSync("/opt/app/config.json", "utf8"));
-      r.body = `<p>${config.banner}</p>` + r.body;
+      
+      if (config != null)
+      {
+        r.body = `<p>${config.banner}</p>` + r.body;
+      }
+      else
+      {
+        r.body = `<p>Hello World</p>` + r.body;
+
+      }
     } catch (err) {
       res.writeHead(500, { "Content-Type": "text/plain" });
       return res.end("Blad serwera: brak konfiguracji");

@@ -4,8 +4,12 @@ const os = require("os");
 const VERSION = "4";
 
 function handle(url) {
-  if (url === "/health") {
-    return { status: 200, type: "text/plain", body: "OK" };
+  if (req.url !== "/health") {
+    // Baner jest opcjonalny: jeśli pliku konfiguracyjnego nie ma, pokazujemy stronę bez niego.
+    if (fs.existsSync("/opt/app/config.json")) {
+      const config = JSON.parse(fs.readFileSync("/opt/app/config.json", "utf8"));
+      r.body = `<p>${config.banner}</p>` + r.body;
+    }
   }
   return {
     status: 200,

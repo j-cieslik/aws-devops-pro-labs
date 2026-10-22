@@ -55,6 +55,38 @@ Resources:
         TargetGroupInfoList:
           - Name:
               Fn::ImportValue: !Sub "${ProjectName}-tg-name"
+      # Lekcja 5: CodeDeploy obserwuje ten alarm W TRAKCIE wdrozenia.
+      # Gdy alarm zapali sie na czerwono -> zatrzymaj wdrozenie.
+      AlarmConfiguration:
+        Enabled: true
+        Alarms:
+          - Name: !Ref Http5xxAlarm
+      # ...i automatycznie wroc do poprzedniej dzialajacej wersji
+      # (zarowno gdy zapali sie alarm, jak i gdy wdrozenie po prostu sie nie uda).
+      AutoRollbackConfiguration:
+        Enabled: true
+        Events: [DEPLOYMENT_FAILURE, DEPLOYMENT_STOP_ON_ALARM]
+
+  # Alarm: "w ciagu minuty serwery zwrocily uzytkownikom 5 lub wiecej bledow 5xx".
+  Http5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${ProjectName}-target-5xx"
+      AlarmDescription: Aplikacja zwraca bledy 5xx przez load balancer
+      Namespace: AWS/ApplicationELB
+      MetricName: HTTPCode_Target_5XX_Count
+      Dimensions:
+        - Name: LoadBalancer
+          Value: { "Fn::ImportValue": !Sub "${ProjectName}-alb-fullname" }
+        - Name: TargetGroup
+          Value: { "Fn::ImportValue": !Sub "${ProjectName}-tg-fullname" }
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      # Brak danych (brak bledow) = wszystko w porzadku.
+      TreatMissingData: notBreaching
 
 Outputs:
   RevisionsBucketName:

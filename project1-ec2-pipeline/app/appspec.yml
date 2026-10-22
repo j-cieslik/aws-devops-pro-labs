@@ -21,3 +21,7 @@ hooks:
     - location: scripts/validate.sh
       timeout: 60
       runas: root
+  AfterAllowTraffic:      # 4. serwer wrócił do load balancera - poobserwuj go 2 minuty
+    - location: scripts/bake.sh
+      timeout: 180
+      runas: root

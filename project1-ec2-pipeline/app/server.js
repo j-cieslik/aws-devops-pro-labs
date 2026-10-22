@@ -6,23 +6,10 @@ const { handle } = require("./app");
 http.createServer((req, res) => {
   const r = handle(req.url);
   if (req.url !== "/health") {
-    try {
-      // NOWA FUNKCJA: baner z pliku konfiguracyjnego.
-      // BŁĄD: na serwerze nikt nie utworzył pliku config.json!
+    // Baner jest opcjonalny: jeśli pliku konfiguracyjnego nie ma, pokazujemy stronę bez niego.
+    if (fs.existsSync("/opt/app/config.json")) {
       const config = JSON.parse(fs.readFileSync("/opt/app/config.json", "utf8"));
-      
-      if (config != null)
-      {
-        r.body = `<p>${config.banner}</p>` + r.body;
-      }
-      else
-      {
-        r.body = `<p>Hello World</p>` + r.body;
-
-      }
-    } catch (err) {
-      res.writeHead(500, { "Content-Type": "text/plain" });
-      return res.end("Blad serwera: brak konfiguracji");
+      r.body = `<p>${config.banner}</p>` + r.body;
     }
   }
   res.writeHead(r.status, { "Content-Type": r.type });

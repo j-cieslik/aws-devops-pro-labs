@@ -30,5 +30,14 @@ Remove-Stack "p1-pipeline"
 Remove-Stack "p1-codebuild"
 Clear-Bucket "p1-revisions-$account"
 Remove-Stack "p1-codedeploy"
+
+# Blue/green tworzy wlasne Auto Scaling groups (CodeDeploy_p1-dg_...), ktorych CloudFormation nie zna.
+$cdAsgs = aws autoscaling describe-auto-scaling-groups @p --query "AutoScalingGroups[?starts_with(AutoScalingGroupName, 'CodeDeploy_p1-dg')].AutoScalingGroupName" --output text
+foreach ($asg in ($cdAsgs -split "\s+" | Where-Object { $_ })) {
+    Write-Host "Usuwam Auto Scaling group utworzona przez CodeDeploy: $asg"
+    aws autoscaling delete-auto-scaling-group --auto-scaling-group-name $asg --force-delete @p
+}
+while ((aws autoscaling describe-auto-scaling-groups @p --query "length(AutoScalingGroups[?starts_with(AutoScalingGroupName, 'CodeDeploy_p1-dg')])" --output text) -ne "0") { Start-Sleep 15 }
+
 Remove-Stack "p1-infra"
 Write-Host "Gotowe. Zostal tylko p1-connection."

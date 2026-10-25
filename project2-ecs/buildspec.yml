@@ -1,0 +1,38 @@
+# CodeBuild instructions for project 2: test the app, build the Docker image and push it to ECR.
+# Expects the environment variable REPO_URI (e.g. 123456789012.dkr.ecr.eu-central-1.amazonaws.com/p2-app),
+# set in the CodeBuild project.
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+
+  pre_build:
+    commands:
+      - cd project2-ecs/app
+      # 1. Unit tests - a failing test stops the build before any image is created.
+      - node --test
+      # 2. Log Docker in to ECR (same command you ran locally, without --profile:
+      #    CodeBuild uses its service role instead).
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin ${REPO_URI%/*}
+      # 3. Tag the image with the short Git commit ID, so every image maps to exactly one commit.
+      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+
+  build:
+    commands:
+      # 4. Build and push. --pull always starts from the newest base image.
+      - docker build --pull -t $REPO_URI:$IMAGE_TAG .
+      - docker push $REPO_URI:$IMAGE_TAG
+
+  post_build:
+    commands:
+      # 5. Files that tell the next pipeline step which image to deploy (used in lesson 6).
+      - printf '[{"name":"p2-app","imageUri":"%s"}]' $REPO_URI:$IMAGE_TAG > imagedefinitions.json
+      - printf '{"ImageURI":"%s"}' $REPO_URI:$IMAGE_TAG > imageDetail.json
+
+artifacts:
+  base-directory: project2-ecs/app
+  files:
+    - imagedefinitions.json
+    - imageDetail.json

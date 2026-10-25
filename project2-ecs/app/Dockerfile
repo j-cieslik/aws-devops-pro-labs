@@ -2,7 +2,7 @@
 
 # 1. Start from an official image that already has Node.js 20 installed
 #    (pulled from Amazon ECR Public to avoid Docker Hub rate limits).
-FROM public.ecr.aws/docker/library/node:20-alpine
+FROM public.ecr.aws/docker/library/node:24-alpine
 
 # 2. Work inside /app in the container.
 WORKDIR /app

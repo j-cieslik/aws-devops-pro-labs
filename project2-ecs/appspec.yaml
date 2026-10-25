@@ -1,0 +1,17 @@
+# CodeDeploy instructions for ECS blue/green.
+# Unlike EC2 (project 1) there are no files or scripts: CodeDeploy starts a new task set
+# from the task definition and switches load balancer traffic to it.
+version: 0.0
+Resources:
+  - TargetService:
+      Type: AWS::ECS::Service
+      Properties:
+        # Filled in by CodePipeline with the new task definition revision.
+        TaskDefinition: <TASK_DEFINITION>
+        LoadBalancerInfo:
+          ContainerName: p2-app
+          ContainerPort: 3000
+Hooks:
+  # Runs after the test listener (port 8080) points at the new version,
+  # but before production traffic (port 80) is switched.
+  - AfterAllowTestTraffic: CodeDeployHook_p2-test

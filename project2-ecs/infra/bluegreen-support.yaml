@@ -1,0 +1,127 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Project 2 / lesson 6 - supporting pieces for ECS blue/green with CodeDeploy:
+  second ("green") target group, test listener on port 8080, CodeDeploy role for ECS
+  and the Lambda function that tests the new version before production traffic moves.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  LoadBalancerArn:
+    Type: String
+  LoadBalancerDns:
+    Type: String
+  BlueTargetGroupArn:
+    Type: String
+
+Resources:
+  # Second target group. CodeDeploy alternates between blue (p2-tg) and green on every deployment.
+  GreenTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: p2-tg-green
+      VpcId: !Ref VpcId
+      TargetType: ip
+      Protocol: HTTP
+      Port: 3000
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 10
+      HealthyThresholdCount: 2
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: "30" }
+
+  # Test listener: port 8080 reaches the NEW version before users (port 80) do.
+  TestListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancerArn
+      Port: 8080
+      Protocol: HTTP
+      DefaultActions:
+        - { Type: forward, TargetGroupArn: !Ref BlueTargetGroupArn }
+
+  # Role CodeDeploy assumes to update the ECS service, switch listeners and call the hook Lambda.
+  # The managed policy only allows invoking Lambda functions whose name starts with "CodeDeployHook_".
+  CodeDeployEcsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: p2-codedeploy-ecs-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codedeploy.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
+
+  HookFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: report-hook-result
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: codedeploy:PutLifecycleEventHookExecutionStatus
+                Resource: "*"
+
+  # Runs in the AfterAllowTestTraffic hook: calls the new version through the test listener
+  # and tells CodeDeploy whether to continue (Succeeded) or roll back (Failed).
+  HookFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: CodeDeployHook_p2-test
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Timeout: 60
+      Role: !GetAtt HookFunctionRole.Arn
+      Environment:
+        Variables:
+          TEST_URL: !Sub "http://${LoadBalancerDns}:8080/"
+      Code:
+        ZipFile: |
+          const { CodeDeployClient, PutLifecycleEventHookExecutionStatusCommand } = require("@aws-sdk/client-codedeploy");
+          const codedeploy = new CodeDeployClient({});
+
+          exports.handler = async (event) => {
+            let status = "Succeeded";
+            try {
+              // Call the new version several times through the test listener.
+              for (let i = 0; i < 5; i++) {
+                const res = await fetch(process.env.TEST_URL);
+                const body = await res.text();
+                console.log(`Attempt ${i + 1}: HTTP ${res.status} ${body}`);
+                if (res.status !== 200 || !/Version \d+/.test(body)) {
+                  throw new Error(`Unexpected response: HTTP ${res.status}`);
+                }
+              }
+              console.log("All test requests passed");
+            } catch (err) {
+              console.log("Test failed:", err.message);
+              status = "Failed";
+            }
+            await codedeploy.send(new PutLifecycleEventHookExecutionStatusCommand({
+              deploymentId: event.DeploymentId,
+              lifecycleEventHookExecutionId: event.LifecycleEventHookExecutionId,
+              status,
+            }));
+            return status;
+          };
+
+Outputs:
+  GreenTargetGroupName:
+    Value: !GetAtt GreenTargetGroup.TargetGroupName
+  CodeDeployRoleArn:
+    Value: !GetAtt CodeDeployEcsRole.Arn
+  HookFunctionName:
+    Value: !Ref HookFunction

@@ -6,6 +6,7 @@ FROM public.ecr.aws/docker/library/node:24-alpine
 
 # 2. Work inside /app in the container.
 WORKDIR /app
+RUN apk upgrade --no-cache
 
 # 3. Copy only what the app needs to run (no tests).
 COPY app.js server.js ./

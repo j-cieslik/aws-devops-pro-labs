@@ -96,6 +96,9 @@ Resources:
           exports.handler = async (event) => {
             let status = "Succeeded";
             try {
+              // The test listener switch takes a few seconds to apply everywhere; without this
+              // wait the first requests can still reach the OLD version and give a false pass.
+              await new Promise((r) => setTimeout(r, 15000));
               // Call the new version several times through the test listener.
               for (let i = 0; i < 5; i++) {
                 const res = await fetch(process.env.TEST_URL);

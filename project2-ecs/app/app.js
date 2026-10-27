@@ -1,7 +1,7 @@
 // Application logic kept separate from the HTTP server so it can be unit tested without starting HTTP.
 const os = require("os");
 
-const VERSION = "3";
+const VERSION = "5";
 
 function handle(url) {
   if (url === "/health") {

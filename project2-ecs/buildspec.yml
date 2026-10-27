@@ -30,9 +30,14 @@ phases:
       # 5. Files that tell the next pipeline step which image to deploy (used in lesson 6).
       - printf '[{"name":"p2-app","imageUri":"%s"}]' $REPO_URI:$IMAGE_TAG > imagedefinitions.json
       - printf '{"ImageURI":"%s"}' $REPO_URI:$IMAGE_TAG > imageDetail.json
+      # 6. Ship the task definition and appspec templates in the same artifact,
+      #    so the Deploy stage finds everything in BuildArtifact.
+      - cp ../taskdef.json ../appspec.yaml .
 
 artifacts:
   base-directory: project2-ecs/app
   files:
     - imagedefinitions.json
     - imageDetail.json
+    - taskdef.json
+    - appspec.yaml

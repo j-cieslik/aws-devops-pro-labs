@@ -1,0 +1,31 @@
+# SAM template: a short description of a serverless app.
+# SAM is an extension of CloudFormation - during deployment it expands these few lines
+# into many regular CloudFormation resources (function, role, version, alias, API, permissions).
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Project 3 - Lambda function with an HTTP API, deployed with SAM.
+
+Resources:
+  HelloFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: app.handler
+      Runtime: nodejs22.x
+      Architectures: [x86_64]
+      MemorySize: 128
+      Timeout: 5
+      # Every deployment with changed code publishes a new version
+      # and points the "live" alias at it.
+      AutoPublishAlias: live
+      Events:
+        Hello:
+          Type: HttpApi
+          Properties:
+            Path: /hello
+            Method: GET
+
+Outputs:
+  HelloUrl:
+    Description: URL of the function behind the HTTP API
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/hello"

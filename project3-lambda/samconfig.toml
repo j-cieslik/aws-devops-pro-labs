@@ -1,0 +1,10 @@
+# Default settings for `sam deploy`, so no --guided questions are needed.
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "p3-sam"
+region = "eu-central-1"
+profile = "devops-lab"
+resolve_s3 = true
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true

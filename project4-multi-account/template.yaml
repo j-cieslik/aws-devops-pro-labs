@@ -1,0 +1,25 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Project 4 - tiny "application" deployed by a cross-account pipeline.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [test, prod]
+  AppVersion:
+    Type: String
+    Default: "1"
+
+Resources:
+  # An SSM parameter is free and easy to see in the console,
+  # so it stands in for a real application here.
+  AppVersionParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /p4/${Environment}/app-version
+      Type: String
+      Value: !Ref AppVersion
+      Description: Deployed by the p4 pipeline from the tools account
+
+Outputs:
+  ParameterName:
+    Value: !Ref AppVersionParameter

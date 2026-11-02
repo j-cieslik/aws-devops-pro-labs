@@ -1,0 +1,14 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PassDeployRoleToCloudFormation",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::208443589897:role/p4-cfn-deploy",
+      "Condition": {
+        "StringEquals": { "iam:PassedToService": "cloudformation.amazonaws.com" }
+      }
+    }
+  ]
+}

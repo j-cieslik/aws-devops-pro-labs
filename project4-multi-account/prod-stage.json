@@ -1,0 +1,25 @@
+{
+  "name": "DeployProd",
+  "actions": [
+    {
+      "name": "CreateOrUpdateStack",
+      "actionTypeId": {
+        "category": "Deploy",
+        "owner": "AWS",
+        "provider": "CloudFormation",
+        "version": "1"
+      },
+      "runOrder": 1,
+      "region": "eu-central-1",
+      "roleArn": "arn:aws:iam::208443589897:role/p4-pipeline-access",
+      "configuration": {
+        "ActionMode": "CREATE_UPDATE",
+        "StackName": "p4-app",
+        "TemplatePath": "SourceArtifact::project4-multi-account/template.yaml",
+        "RoleArn": "arn:aws:iam::208443589897:role/p4-cfn-deploy",
+        "ParameterOverrides": "{\"Environment\": \"prod\"}"
+      },
+      "inputArtifacts": [{ "name": "SourceArtifact" }]
+    }
+  ]
+}

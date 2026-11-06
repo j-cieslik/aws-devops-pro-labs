@@ -1,0 +1,150 @@
+{
+    "pipeline": {
+        "name": "p4-pipeline",
+        "roleArn": "arn:aws:iam::296062564420:role/p4-pipeline-role",
+        "artifactStore": {
+            "type": "S3",
+            "location": "p4-artifacts-296062564420",
+            "encryptionKey": {
+                "id": "arn:aws:kms:eu-central-1:296062564420:alias/p4-artifacts-key",
+                "type": "KMS"
+            }
+        },
+        "stages": [
+            {
+                "name": "Source",
+                "actions": [
+                    {
+                        "name": "Source",
+                        "actionTypeId": {
+                            "category": "Source",
+                            "owner": "AWS",
+                            "provider": "CodeStarSourceConnection",
+                            "version": "1"
+                        },
+                        "runOrder": 1,
+                        "configuration": {
+                            "BranchName": "main",
+                            "ConnectionArn": "arn:aws:codestar-connections:eu-central-1:296062564420:connection/7acd1088-417e-4826-a0af-4af435226545",
+                            "DetectChanges": "true",
+                            "FullRepositoryId": "j-cieslik/aws-devops-pro-labs",
+                            "OutputArtifactFormat": "CODE_ZIP"
+                        },
+                        "outputArtifacts": [
+                            {
+                                "name": "SourceArtifact"
+                            }
+                        ],
+                        "inputArtifacts": [],
+                        "region": "eu-central-1",
+                        "namespace": "SourceVariables"
+                    }
+                ],
+                "onFailure": {
+                    "result": "RETRY",
+                    "retryConfiguration": {
+                        "retryMode": "ALL_ACTIONS"
+                    }
+                }
+            },
+            {
+                "name": "Deploy",
+                "actions": [
+                    {
+                        "name": "Deploy",
+                        "actionTypeId": {
+                            "category": "Deploy",
+                            "owner": "AWS",
+                            "provider": "CloudFormation",
+                            "version": "1"
+                        },
+                        "runOrder": 1,
+                        "configuration": {
+                            "ActionMode": "CREATE_UPDATE",
+                            "ParameterOverrides": "{\"Environment\":\"test\"}",
+                            "RoleArn": "arn:aws:iam::296062564420:role/p4-cfn-deploy",
+                            "StackName": "p4-app",
+                            "TemplatePath": "SourceArtifact::project4-multi-account/template.yaml"
+                        },
+                        "outputArtifacts": [],
+                        "inputArtifacts": [
+                            {
+                                "name": "SourceArtifact"
+                            }
+                        ],
+                        "region": "eu-central-1",
+                        "namespace": "DeployVariables"
+                    }
+                ],
+                "onFailure": {
+                    "result": "ROLLBACK"
+                }
+            },
+            {
+                "name": "Approval",
+                "actions": [
+                    {
+                        "name": "ApproveProd",
+                        "actionTypeId": {
+                            "category": "Approval",
+                            "owner": "AWS",
+                            "provider": "Manual",
+                            "version": "1"
+                        },
+                        "runOrder": 1,
+                        "configuration": {},
+                        "outputArtifacts": [],
+                        "inputArtifacts": [],
+                        "region": "eu-central-1"
+                    }
+                ]
+            },
+			{
+			  "name": "DeployProd",
+			  "actions": [
+				{
+				  "name": "CreateOrUpdateStack",
+				  "actionTypeId": {
+					"category": "Deploy",
+					"owner": "AWS",
+					"provider": "CloudFormation",
+					"version": "1"
+				  },
+				  "runOrder": 1,
+				  "region": "eu-central-1",
+				  "roleArn": "arn:aws:iam::208443589897:role/p4-pipeline-access",
+				  "configuration": {
+					"ActionMode": "CREATE_UPDATE",
+					"StackName": "p4-app",
+					"TemplatePath": "SourceArtifact::project4-multi-account/template.yaml",
+					"RoleArn": "arn:aws:iam::208443589897:role/p4-cfn-deploy",
+					"ParameterOverrides": "{\"Environment\": \"prod\"}"
+				  },
+				  "inputArtifacts": [{ "name": "SourceArtifact" }]
+				}
+			  ]
+			}
+
+        ],
+        "version": 2,
+        "executionMode": "QUEUED",
+        "pipelineType": "V2",
+        "triggers": [
+            {
+                "providerType": "CodeStarSourceConnection",
+                "gitConfiguration": {
+                    "sourceActionName": "Source",
+                    "push": [
+                        {
+                            "branches": {
+                                "includes": [
+                                    "main"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+}

@@ -1,0 +1,57 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Project 5 - EC2 web server configured by cfn-init, with a CreationPolicy waiting for cfn-signal.
+
+Parameters:
+  LatestAmiId:
+    # Public SSM parameter that always points to the newest Amazon Linux 2023 AMI,
+    # so the template never needs a hard-coded AMI ID.
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  PackageName:
+    # Change to a package that does not exist to see a failed signal.
+    Type: String
+    Default: httpd
+  PageText:
+    Type: String
+    Default: Hello from cfn-init, version 1
+
+Resources:
+  WebServer:
+    Type: AWS::EC2::Instance
+    # Do not mark the instance CREATE_COMPLETE until it reports success itself.
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT10M
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          files:
+            /var/www/html/index.html:
+              content: !Ref PageText
+              mode: "000644"
+          commands:
+            01_install:
+              command: !Sub dnf install -y ${PackageName}
+            02_start:
+              command: systemctl enable --now httpd
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref LatestAmiId
+      SecurityGroupIds:
+        - !ImportValue p5-web-sg-id
+      Tags:
+        - Key: Name
+          Value: p5-web
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          dnf install -y aws-cfn-bootstrap
+          # Read the Metadata above and apply it (files, commands).
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource WebServer --region ${AWS::Region}
+          # Report the exit code of cfn-init back to CloudFormation.
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource WebServer --region ${AWS::Region}
+
+Outputs:
+  WebsiteUrl:
+    Value: !Sub http://${WebServer.PublicDnsName}

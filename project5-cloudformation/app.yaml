@@ -1,0 +1,12 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Project 5 - "application" stack that uses the exported security group.
+
+Resources:
+  AppConfig:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /p5/app/config
+      Type: String
+      # Value comes from the network stack's export
+      Value: !ImportValue p5-web-sg-id
+      Description: Security group used by the app

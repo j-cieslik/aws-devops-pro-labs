@@ -1,0 +1,28 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Project 5 - "network" stack that shares a security group with other stacks.
+
+Parameters:
+  VpcId:
+    # A typed parameter: the console shows a drop-down with your VPCs
+    # and CloudFormation rejects values that are not real VPC IDs.
+    Type: AWS::EC2::VPC::Id
+    Description: Pick the default VPC
+
+Resources:
+  WebSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: p5 web servers
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+Outputs:
+  WebSecurityGroupId:
+    Value: !Ref WebSecurityGroup
+    Export:
+      # Other stacks read this value with Fn::ImportValue p5-web-sg-id
+      Name: p5-web-sg-id
